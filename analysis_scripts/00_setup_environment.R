@@ -1,5 +1,5 @@
 # =================================================================
-# 📦 Environment setup and packages loading
+# 📦 SETUP ENVIRONMENT AND LOAD PACKAGES
 # Purpose: Initialize R environment and load all required packages
 # Note: This script should be run first!
 # =================================================================
