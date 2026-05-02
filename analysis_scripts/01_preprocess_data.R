@@ -2,11 +2,11 @@
 # 🔄 METABOLOMICS DATA PREPROCESSING PIPELINE
 # Purpose: Complete preprocessing workflow for metabolomics data
 # Input: Raw metabolomics data (CSV format)
-# Output: Preprocessing data ready for statistical analysis
+# Output: Preprocessed data ready for statistical analysis
 # =================================================================
 
 cat("🚀 Starting metabolomics data preprocessing...\n")
-cat("=============================================")
+cat(paste0(strrep("=", 45), "\n"))
 
 # =============================================
 # 1. LOAD AND INSPECT DATA
@@ -18,8 +18,8 @@ cat("\n📂 STEP 1: Loading data...\n")
 input_file <- "data/raw_metabolomics_data.csv"
 
 # Check if file exists
-if (!file.exists(input_file)){
-  stop("Error: Input file not found at:",input_file,
+if (!file.exists(input_file)) {
+  stop("Error: Input file not found at: ", input_file,
        "\nPlease ensure your data file is in the 'data/' folder.")
 }
 
@@ -34,8 +34,8 @@ combined_data <- read.csv(
 
 # 1.2 Basic data information
 cat("Data overview:\n")
-cat(springf(" Total samples: %d\n", nrow(combined_data)))
-cat(springf(" Total variables: %d\n", ncol(combined_data)))
+cat(sprintf(" Total samples: %d\n", nrow(combined_data)))
+cat(sprintf(" Total variables: %d\n", ncol(combined_data)))
 
 # 1.3 Check group information
 cat("\nGroup distribution:\n")
@@ -121,7 +121,6 @@ if (length(metabolites_removed) > 0) {
   write.csv(removed_metabolites_info, "output/removed_metabolites.csv", row.names = FALSE)
   cat("✅ Removed metabolites list saved\n")
 } else {
-  # Create empty file if no metabolites were removed
   removed_metabolites_info <- data.frame(
     Metabolite = character(),
     Presence_Rate = numeric(),
@@ -151,7 +150,7 @@ numeric_filtered <- filtered_data[, 3:ncol(filtered_data)]
 missing_before <- sum(is.na(numeric_filtered)) / length(numeric_filtered) * 100
 cat(sprintf("Missing rate before imputation: %.2f%%\n", missing_before))
 
-# 4.2 Impute with half of minimum value (suitable for small datasets)
+# 4.2 Impute with half of minimum value
 imputed_data <- numeric_filtered
 
 for (i in 1:ncol(imputed_data)) {
@@ -159,18 +158,14 @@ for (i in 1:ncol(imputed_data)) {
   non_missing <- col_data[!is.na(col_data)]
   
   if (length(non_missing) > 0) {
-    # Find minimum positive value
     positive_vals <- non_missing[non_missing > 0]
     if (length(positive_vals) > 0) {
       min_value <- min(positive_vals, na.rm = TRUE)
       impute_value <- min_value * 0.5
     } else {
-      # If no positive values, use overall minimum
       min_value <- min(non_missing, na.rm = TRUE)
       impute_value <- min_value * 0.5
     }
-    
-    # Impute missing values
     imputed_data[is.na(imputed_data[, i]), i] <- impute_value
   }
 }
@@ -193,40 +188,25 @@ imputed_df <- data.frame(
 
 cat("\n⚖️ STEP 5: PQN normalization...\n")
 
-# 5.1 Define PQN normalization function
 pqn_normalize <- function(data_matrix) {
-  # Ensure no zeros or negative values
   data_matrix[data_matrix <= 0] <- min(data_matrix[data_matrix > 0]) * 0.01
-  
-  # Calculate reference spectrum (median of all samples)
   reference_spectrum <- apply(data_matrix, 2, median, na.rm = TRUE)
-  
-  # Calculate quotient matrix
   quotient_matrix <- sweep(data_matrix, 2, reference_spectrum, FUN = "/")
-  
-  # Calculate correction factors (median of quotients for each sample)
   correction_factors <- apply(quotient_matrix, 1, median, na.rm = TRUE)
-  
-  # Apply correction factors
   normalized_matrix <- sweep(data_matrix, 1, correction_factors, FUN = "/")
-  
   return(normalized_matrix)
 }
 
-# 5.2 Prepare data matrix
 data_matrix <- as.matrix(imputed_df[, 3:ncol(imputed_df)])
 rownames(data_matrix) <- imputed_df$Sample_ID
 
-# 5.3 Perform PQN normalization
 cat("Performing PQN normalization...\n")
 pqn_matrix <- pqn_normalize(data_matrix)
 
-# 5.4 Check normalization effect
 cat("Normalization quality check:\n")
 cat(sprintf("  Raw data median: %.4f\n", median(data_matrix)))
 cat(sprintf("  Normalized data median: %.4f\n", median(pqn_matrix)))
 
-# 5.5 Create normalized dataframe
 normalized_data <- data.frame(
   Sample_ID = imputed_df$Sample_ID,
   Group = imputed_df$Group,
@@ -240,11 +220,9 @@ normalized_data <- data.frame(
 
 cat("\n📊 STEP 6: Log2 transformation...\n")
 
-# 6.1 Apply log2(x+1) transformation
 log_transformed <- normalized_data
 log_transformed[, 3:ncol(log_transformed)] <- log2(normalized_data[, 3:ncol(normalized_data)] + 1)
 
-# 6.2 Check transformation
 cat("Data distribution after log2 transformation:\n")
 summary_stats <- summary(as.vector(as.matrix(log_transformed[, 3:min(8, ncol(log_transformed))])))
 print(summary_stats)
@@ -255,19 +233,14 @@ print(summary_stats)
 
 cat("\n💾 STEP 7: Saving preprocessed data...\n")
 
-# 7.1 Save preprocessed data
-write.csv(log_transformed, 
-          "output/preprocessed_data.csv", 
-          row.names = FALSE)
+write.csv(log_transformed, "output/preprocessed_data.csv", row.names = FALSE)
 cat("✅ Preprocessed data saved: output/preprocessed_data.csv\n")
 
-# 7.2 Save matrix format
 matrix_data <- as.matrix(log_transformed[, 3:ncol(log_transformed)])
 rownames(matrix_data) <- log_transformed$Sample_ID
 write.csv(matrix_data, "output/preprocessed_matrix.csv")
 cat("✅ Matrix format saved: output/preprocessed_matrix.csv\n")
 
-# 7.3 Save group information
 group_info <- data.frame(
   Sample_ID = log_transformed$Sample_ID,
   Group = log_transformed$Group
@@ -275,9 +248,8 @@ group_info <- data.frame(
 write.csv(group_info, "output/sample_group_info.csv", row.names = FALSE)
 cat("✅ Group information saved: output/sample_group_info.csv\n")
 
-# 7.4 Generate preprocessing report
 preprocessing_report <- data.frame(
-  Step = c("Raw data", "After filtering", "After imputation", 
+  Step = c("Raw data", "After filtering", "After imputation",
            "After PQN normalization", "After log2 transformation"),
   Samples = rep(nrow(combined_data), 5),
   Metabolites = c(
@@ -305,16 +277,12 @@ cat("✅ Preprocessing report saved: output/preprocessing_report.csv\n")
 
 cat("\n📈 STEP 8: Generating quality control plots...\n")
 
-# 8.1 Boxplot of data distribution
 if (!dir.exists("output/figures")) dir.create("output/figures", recursive = TRUE)
 
-# Create PDF with boxplots
 pdf("output/figures/data_distribution_boxplots.pdf", width = 14, height = 8)
-
 par(mfrow = c(1, 2))
 
-# Original data (first 50 metabolites)
-boxplot(data_matrix[, 1:min(50, ncol(data_matrix))], 
+boxplot(data_matrix[, 1:min(50, ncol(data_matrix))],
         main = "Original data distribution\n(Top 50 metabolites)",
         col = "lightblue",
         outline = FALSE,
@@ -322,15 +290,13 @@ boxplot(data_matrix[, 1:min(50, ncol(data_matrix))],
         cex.axis = 0.7,
         ylab = "Intensity")
 
-# Normalized data (first 50 metabolites)
-boxplot(pqn_matrix[, 1:min(50, ncol(pqn_matrix))], 
+boxplot(pqn_matrix[, 1:min(50, ncol(pqn_matrix))],
         main = "PQN normalized data distribution\n(Top 50 metabolites)",
         col = "lightgreen",
         outline = FALSE,
         las = 2,
         cex.axis = 0.7,
         ylab = "Normalized intensity")
-
 dev.off()
 cat("✅ QC plots saved: output/figures/data_distribution_boxplots.pdf\n")
 
@@ -338,9 +304,9 @@ cat("✅ QC plots saved: output/figures/data_distribution_boxplots.pdf\n")
 # 9. FINAL SUMMARY
 # ============================================
 
-cat("\n" + strrep("=", 50) + "\n")
+cat(paste0("\n", strrep("=", 50), "\n"))
 cat("✅ PREPROCESSING COMPLETE - FINAL SUMMARY\n")
-cat(strrep("=", 50) + "\n\n")
+cat(paste0(strrep("=", 50), "\n\n"))
 
 cat("📊 FINAL DATA INFORMATION:\n")
 cat(sprintf("  Total samples: %d\n", nrow(log_transformed)))
@@ -348,7 +314,6 @@ cat(sprintf("  Fit-Good group: %d samples\n", sum(log_transformed$Group == "Fit-
 cat(sprintf("  Fit-Poor group: %d samples\n", sum(log_transformed$Group == "Fit-Poor")))
 cat(sprintf("  Final metabolites: %d\n", ncol(log_transformed) - 2))
 
-# Data integrity check
 cat("\n🔍 DATA INTEGRITY CHECK:\n")
 final_data <- log_transformed[, 3:ncol(log_transformed)]
 missing_final <- sum(is.na(final_data)) / length(final_data) * 100
@@ -366,9 +331,8 @@ cat("  5. output/removed_metabolites.csv - List of removed metabolites\n")
 cat("  6. output/preprocessing_report.csv - Step-by-step processing report\n")
 cat("  7. output/figures/data_distribution_boxplots.pdf - QC visualization\n")
 
-cat("\n" + strrep("=", 50) + "\n")
+cat(paste0("\n", strrep("=", 50), "\n"))
 cat("🎉 PREPROCESSING PIPELINE FINISHED SUCCESSFULLY!\n")
-cat(strrep("=", 50) + "\n")
+cat(paste0(strrep("=", 50), "\n"))
 cat("Data is now ready for statistical analysis.\n")
 cat("Next step: Run statistical tests and generate figures.\n")
-
