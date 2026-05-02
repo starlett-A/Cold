@@ -6,11 +6,14 @@
 
 cat("🔧 Setting up analysis environment...\n")
 
-# Install pacman for package management
+# Install pacman if missing
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  install.packages("pacman")
+}
 library(pacman)
 
 # Define required packages
-required_packaged <- c(
+required_packages <- c(
   # Data manipulation
   "dplyr", "tidyr", "tibble", "readr", "tidyverse",
   
@@ -21,13 +24,13 @@ required_packaged <- c(
   "mixOmics", "imputeLCMD", "randomForest", "effsize", "pROC", "nortest",
   
   # Utilities
-  "magrittr", "stingr", "matrixStats", "gridExtra"
+  "magrittr", "stringr", "matrixStats", "gridExtra"
 )
 
 # Load all packages (install if missing)
 p_load(char = required_packages)
 
-# Set random see for reproducibility
+# Set random seed for reproducibility
 set.seed(2026)
 
 # Print confirmation
