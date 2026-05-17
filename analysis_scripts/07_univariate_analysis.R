@@ -1,11 +1,13 @@
 # =================================================================
-# 📊 UNIVARIATE ANALYSIS (DIFFERENTIAL ABUNDANCE)
-# Purpose: Statistical testing + effect size on RF-selected metabolites
-# Input:   RF-selected abundance data (log2-transformed)
-# Output:  Full results, significant metabolites, summary statistics
+# 📊 UNIVARIATE ANALYSIS (DIFFERENTIAL ABUNDANCE) 
+# Purpose: Statistical testing + effect size + 95% CI for mean
+#          difference on RF‑selected metabolites.
+# Input:   RF‑selected abundance data (log2‑transformed)
+# Output:  Full results, significant metabolites, summary,
+#          and publication‑ready descriptive text.
 # =================================================================
 
-cat("🚀 Starting univariate analysis...\n")
+cat("🚀 Starting univariate analysis (with 95% CI)...\n")
 cat(paste0(strrep("=", 45), "\n"))
 
 # =============================================
@@ -23,12 +25,12 @@ cat("✅ Package loading complete\n")
 # =============================================
 # 1. LOAD DATA
 # =============================================
-cat("\n📂 STEP 1: Loading RF-selected metabolite abundance...\n")
+cat("\n📂 STEP 1: Loading RF‑selected metabolite abundance...\n")
 
 input_file <- "output/RF_selected_metabolites_abundance.csv"
 if (!file.exists(input_file)) {
   stop("Error: Abundance file not found at: ", input_file,
-       "\nPlease run 07_random_forest.R first.")
+       "\nPlease run 06_randomforest.R first.")
 }
 
 abundance <- read_csv(input_file, show_col_types = FALSE)
@@ -38,7 +40,17 @@ cat(sprintf("  Data loaded: %d samples, %d columns\n",
 
 # Ensure Group column is factor
 if (!"Group" %in% colnames(abundance)) {
-  stop("Data must contain a 'Group' column")
+  # Try renaming (preserves original script logic)
+  potential <- c("group", "GROUP", "Class", "class", "category", "Category")
+  for (col in potential) {
+    if (col %in% colnames(abundance)) {
+      colnames(abundance)[colnames(abundance) == col] <- "Group"
+      break
+    }
+  }
+  if (!"Group" %in% colnames(abundance) && ncol(abundance) >= 2) {
+    colnames(abundance)[2] <- "Group"
+  }
 }
 abundance$Group <- factor(abundance$Group, levels = c("Fit-Good", "Fit-Poor"))
 
@@ -47,10 +59,10 @@ metabolite_cols <- setdiff(colnames(abundance), c("Sample_ID", "Group"))
 cat(sprintf("  Metabolites to test: %d\n", length(metabolite_cols)))
 
 # =============================================
-# 2. UNIVARIATE ANALYSIS FUNCTION
+# 2. UNIVARIATE ANALYSIS FUNCTION (WITH 95% CI)
 # =============================================
 cat(paste0("\n", strrep("=", 60), "\n"))
-cat("STEP 2: Running univariate tests (t-test / Wilcoxon)\n")
+cat("STEP 2: Running univariate tests (t‑test / Wilcoxon) + 95% CI\n")
 cat(paste0(strrep("=", 60), "\n"))
 
 univariate_analysis <- function(data, metabolites, group_var) {
@@ -72,7 +84,7 @@ univariate_analysis <- function(data, metabolites, group_var) {
     shapiro_good <- tryCatch(shapiro.test(good_vals)$p.value, error = function(e) NA)
     shapiro_poor <- tryCatch(shapiro.test(poor_vals)$p.value, error = function(e) NA)
     is_normal <- (!is.na(shapiro_good) && !is.na(shapiro_poor) &&
-                    shapiro_good > 0.05 && shapiro_poor > 0.05)
+                  shapiro_good > 0.05 && shapiro_poor > 0.05)
     
     # Statistical test
     if (is_normal && length(good_vals) >= 3 && length(poor_vals) >= 3) {
@@ -114,6 +126,17 @@ univariate_analysis <- function(data, metabolites, group_var) {
       display_fc <- 1 / linear_fc
     }
     
+    # ★ 95% CI for mean difference (Poor - Good) using Welch's t‑test
+    ci_result <- tryCatch({
+      t_ci <- t.test(poor_vals, good_vals, var.equal = FALSE)
+      list(Mean_Difference = t_ci$estimate[1] - t_ci$estimate[2],
+           CI_lower        = t_ci$conf.int[1],
+           CI_upper        = t_ci$conf.int[2])
+    }, error = function(e) {
+      list(Mean_Difference = mean(poor_vals, na.rm = TRUE) - mean(good_vals, na.rm = TRUE),
+           CI_lower = NA, CI_upper = NA)
+    })
+    
     # AUC
     auc_val <- tryCatch({
       roc_obj <- pROC::roc(response = data[[group_var]],
@@ -123,6 +146,7 @@ univariate_analysis <- function(data, metabolites, group_var) {
       as.numeric(roc_obj$auc)
     }, error = function(e) NA)
     
+    # Store results
     results_list[[met]] <- list(
       Metabolite       = met,
       Sample_Size_Good = length(good_vals),
@@ -141,6 +165,9 @@ univariate_analysis <- function(data, metabolites, group_var) {
       AUC              = auc_val,
       Mean_Good        = mean(good_vals, na.rm = TRUE),
       Mean_Poor        = mean(poor_vals, na.rm = TRUE),
+      Mean_Difference  = ci_result$Mean_Difference,
+      CI_lower         = ci_result$CI_lower,
+      CI_upper         = ci_result$CI_upper,
       Median_Good      = median(good_vals, na.rm = TRUE),
       Median_Poor      = median(poor_vals, na.rm = TRUE),
       SD_Good          = sd(good_vals, na.rm = TRUE),
@@ -178,10 +205,10 @@ sig_fc     <- abs(univariate_results$log2FC) > 0.58 & !is.na(univariate_results$
 significant_idx <- which(sig_bh | (sig_effect & sig_fc))
 n_significant <- length(significant_idx)
 
-cat(sprintf("  FDR < 0.05: %d metabolites\n", sum(sig_bh)))
-cat(sprintf("  |Cliff's Delta| > 0.5: %d metabolites\n", sum(sig_effect)))
-cat(sprintf("  |log2FC| > 0.58: %d metabolites\n", sum(sig_fc)))
-cat(sprintf("  Combined significant: %d metabolites\n", n_significant))
+cat(sprintf("  FDR < 0.05          : %d\n", sum(sig_bh)))
+cat(sprintf("  |Cliff's Delta| > 0.5: %d\n", sum(sig_effect)))
+cat(sprintf("  |log2FC| > 0.58     : %d\n", sum(sig_fc)))
+cat(sprintf("  Combined significant: %d\n", n_significant))
 
 # =============================================
 # 4. SAVE RESULTS
@@ -192,7 +219,7 @@ cat(paste0(strrep("=", 50), "\n"))
 
 if (!dir.exists("output")) dir.create("output", recursive = TRUE)
 
-# Full results
+# Full results (with CI columns)
 write_csv(univariate_results, "output/univariate_all_results.csv")
 cat("✅ Saved: output/univariate_all_results.csv\n")
 
@@ -204,8 +231,10 @@ if (n_significant > 0) {
   # Key columns
   key_cols <- c("Metabolite", "Rank", "p_value", "p_adj_BH", "p_adj_Bonferroni",
                 "log2FC", "Linear_FC", "Display_Fold_Change", "Direction",
+                "Mean_Good", "SD_Good", "Mean_Poor", "SD_Poor",
+                "Mean_Difference", "CI_lower", "CI_upper",   # ★ CI columns
                 "Cliff_Delta", "Cohen_d", "AUC", "Test_Type",
-                "Mean_Good", "Mean_Poor", "Sample_Size_Good", "Sample_Size_Poor")
+                "Sample_Size_Good", "Sample_Size_Poor")
   available_cols <- intersect(key_cols, names(sig_df))
   sig_df_out <- sig_df[, available_cols]
   
@@ -216,7 +245,7 @@ if (n_significant > 0) {
   cat("⚠️  No significant metabolites (empty file written)\n")
 }
 
-# Summary table
+# Summary
 summary_df <- data.frame(
   Metric = c("Total metabolites",
              "p < 0.05 (raw)",
@@ -237,35 +266,45 @@ write_csv(summary_df, "output/univariate_summary.csv")
 cat("✅ Saved: output/univariate_summary.csv\n")
 
 # =============================================
-# 5. FINAL REPORT
+# 5. PUBLICATION‑READY DESCRIPTIVE TEXT
 # =============================================
-cat(paste0("\n", strrep("=", 60), "\n"))
-cat("🎉 UNIVARIATE ANALYSIS COMPLETE\n")
-cat(paste0(strrep("=", 60), "\n\n"))
+cat(paste0("\n", strrep("=", 50), "\n"))
+cat("STEP 5: Generating manuscript‑ready descriptive text\n")
+cat(paste0(strrep("=", 50), "\n"))
 
-cat("Statistical tests used:\n")
-print(table(univariate_results$Test_Type))
-
-cat(sprintf("\n  Total tested: %d\n", nrow(univariate_results)))
-cat(sprintf("  Significant : %d\n", n_significant))
 if (n_significant > 0) {
-  n_up <- sum(univariate_results$log2FC[significant_idx] > 0)
-  n_down <- n_significant - n_up
-  cat(sprintf("  Up in Poor   : %d\n", n_up))
-  cat(sprintf("  Down in Poor : %d\n", n_down))
-  
-  cat("\n🏆 Top 5 most significant metabolites:\n")
-  top5 <- head(sig_df, 5)
-  for (i in 1:nrow(top5)) {
-    cat(sprintf("  %d. %-30s log2FC=%.2f  p=%.2e  FDR=%.2e  Cliff=%.2f\n",
-                i, top5$Metabolite[i], top5$log2FC[i], top5$p_value[i],
-                top5$p_adj_BH[i], top5$Cliff_Delta[i]))
+  cat("The following sentences can be directly copied into your manuscript:\n\n")
+  for (i in 1:nrow(sig_df)) {
+    row <- sig_df[i, ]
+    
+    if (row$log2FC > 0) {
+      higher_group <- "Fit-Poor"
+      lower_group  <- "Fit-Good"
+    } else {
+      higher_group <- "Fit-Good"
+      lower_group  <- "Fit-Poor"
+    }
+    
+    p_fmt <- ifelse(row$p_value < 0.001, "P < 0.001",
+                    ifelse(row$p_value < 0.01, sprintf("P = %.3f", row$p_value),
+                           sprintf("P = %.3f", row$p_value)))
+    fdr_fmt <- ifelse(row$p_adj_BH < 0.001, "FDR‑adjusted P < 0.001",
+                      ifelse(row$p_adj_BH < 0.01, sprintf("FDR‑adjusted P = %.3f", row$p_adj_BH),
+                             sprintf("FDR‑adjusted P = %.3f", row$p_adj_BH)))
+    
+    cat(sprintf(
+      "%s levels were higher in the %s group (mean ± SD: %.4f ± %.4f vs. %.4f ± %.4f; mean difference = %.4f, 95%% CI: %.4f to %.4f; Log2FC = %.3f; %s).\n\n",
+      row$Metabolite,
+      higher_group,
+      row$Mean_Poor, row$SD_Poor,
+      row$Mean_Good, row$SD_Good,
+      row$Mean_Difference,
+      row$CI_lower,
+      row$CI_upper,
+      row$log2FC,
+      fdr_fmt
+    ))
   }
 }
 
-cat("\n📁 Key outputs:\n")
-cat("  output/univariate_all_results.csv\n")
-cat("  output/univariate_significant_metabolites.csv\n")
-cat("  output/univariate_summary.csv\n")
-
-cat("\n🔜 Next step: functional enrichment, integration with 16S, or figure generation.\n")
+cat("\n💡 The descriptive text is also printed above for easy copy‑paste.\n")
